@@ -42,7 +42,8 @@ except urllib.error.HTTPError as exc:
     print(f"PASS unknown path: HTTP {exc.code}, denied")
 
 
-# Verify legacy hardcoded URLs at the Cloudflare edge without changing the domain.
+# Verify the hardcoded URLs with the same empty User-Agent as the shipping
+# C# HttpClient (Cloudflare error 1010 deliberately blocks "Python-urllib/3.12").
 class StopRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -51,40 +52,20 @@ opener = urllib.request.build_opener(StopRedirect())
 for name in ("renderdock", "airstack"):
     legacy = f"https://jl-bke.com/api/graceperiod/{name}"
     target = f"{BASE}/api/graceperiod/{name}"
+    request = urllib.request.Request(legacy, headers={"User-Agent": ""})
     try:
-        with opener.open(urllib.request.Request(legacy), timeout=8) as response:
-            raise SystemExit(f"FAIL {legacy}: expected exact 302 redirect but got HTTP {response.status}")
+        with opener.open(request, timeout=8) as response:
+            raise SystemExit(f"FAIL {legacy}: expected temporary HTTP 302 but got HTTP {response.status}")
     except urllib.error.HTTPError as exc:
-        if exc.code != 302:
-            # Diagnostics are restricted to public HTTP headers; do not echo the request body or secrets.
-            safe = {key: exc.headers.get(key) for key in (
-                "Server", "CF-Ray", "CF-Mitigated", "Content-Type", "Location", "X-Cache",
-            ) if exc.headers.get(key)}
-            print(f"EDGE DIAGNOSTIC {legacy}: HTTP {exc.code}, headers={safe}", flush=True)
-            body = exc.read(600).decode("utf-8", errors="replace")
-            print(f"EDGE DIAGNOSTIC BODY: {body[:600]!r}", flush=True)
-        assert exc.code == 302, f"FAIL {legacy}: expected 302, got {exc.code}"
-        assert exc.headers.get("Location") == target, f"FAIL {legacy}: unexpected redirect destination"
-    try:
-        with urllib.request.urlopen(urllib.request.Request(legacy), timeout=8) as response:
-            assert response.status == 200 and response.geturl() == target
-            assert "application/json" in response.headers.get("Content-Type", "").lower()
-            assert "no-store" in response.headers.get("Cache-Control", "").lower()
-            payload = json.loads(response.read())
-            assert payload == {"grace": True} and type(payload["grace"]) is bool
-    except urllib.error.HTTPError as exc:
-        safe = {key: exc.headers.get(key) for key in (
-            "Server", "CF-Ray", "CF-Mitigated", "Content-Type", "Location", "X-Cache",
-        ) if exc.headers.get(key)}
-        print(f"FOLLOWED-REQUEST DIAGNOSTIC {exc.url}: HTTP {exc.code}, headers={safe}", flush=True)
-        print(f"FOLLOWED-REQUEST BODY: {exc.read(600).decode('utf-8', errors='replace')[:600]!r}", flush=True)
-        # Compare a direct request with default and explicit client identifiers.
-        for ua in ("Python-urllib/3.12", "", "bke-grace-exact-contract-smoke/1"):
-            try:
-                direct = urllib.request.Request(target, headers={"User-Agent": ua})
-                with urllib.request.urlopen(direct, timeout=8) as probe:
-                    print(f"DIRECT PAGE PROBE ua={ua!r}: HTTP {probe.status}, type={probe.headers.get('Content-Type')}", flush=True)
-            except urllib.error.HTTPError as probe_err:
-                print(f"DIRECT PAGE PROBE ua={ua!r}: HTTP {probe_err.code}, body={probe_err.read(130)!r}", flush=True)
-        raise
+        assert exc.code == 302, f"FAIL {legacy}: expected temporary 302, got {exc.code}"
+        assert exc.headers.get("Location") == target, f"FAIL {legacy}: redirect location unexpected"
+
+    with urllib.request.urlopen(urllib.request.Request(legacy, headers={"User-Agent": ""}), timeout=8) as response:
+        assert response.status == 200 and response.geturl() == target
+        assert "application/json" in response.headers.get("Content-Type", "").lower()
+        assert "no-store" in response.headers.get("Cache-Control", "").lower()
+        raw = response.read()
+        payload = json.loads(raw)
+        assert payload == {"grace": True} and type(payload["grace"]) is bool
+        assert raw.strip() == b'{"grace":true}'
     print(f"PASS legacy /api/graceperiod/{name}: exact 302 to Pages -> 200 JSON true, no-store")
