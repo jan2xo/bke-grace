@@ -36,5 +36,7 @@ try:
     with urllib.request.urlopen(BASE + "/api/graceperiod/unknown", timeout=8) as response:
         raise SystemExit(f"FAIL unknown Grace path: returned HTTP {response.status} instead of 404")
 except urllib.error.HTTPError as exc:
-    assert exc.code == 404, f"Unexpected status for unknown path: {exc.code}"
-print("PASS unknown path: HTTP 404")
+    # Cloudflare can reject unrecognized paths at the edge with 403 before the
+    # site's 404 fallback; either status refuses Grace and is safe.
+    assert exc.code in (403, 404), f"Unexpected status for unknown path: {exc.code}"
+    print(f"PASS unknown path: HTTP {exc.code}, denied")
