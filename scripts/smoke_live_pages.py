@@ -65,10 +65,26 @@ for name in ("renderdock", "airstack"):
             print(f"EDGE DIAGNOSTIC BODY: {body[:600]!r}", flush=True)
         assert exc.code == 302, f"FAIL {legacy}: expected 302, got {exc.code}"
         assert exc.headers.get("Location") == target, f"FAIL {legacy}: unexpected redirect destination"
-    with urllib.request.urlopen(urllib.request.Request(legacy), timeout=8) as response:
-        assert response.status == 200 and response.geturl() == target
-        assert "application/json" in response.headers.get("Content-Type", "").lower()
-        assert "no-store" in response.headers.get("Cache-Control", "").lower()
-        payload = json.loads(response.read())
-        assert payload == {"grace": True} and type(payload["grace"]) is bool
+    try:
+        with urllib.request.urlopen(urllib.request.Request(legacy), timeout=8) as response:
+            assert response.status == 200 and response.geturl() == target
+            assert "application/json" in response.headers.get("Content-Type", "").lower()
+            assert "no-store" in response.headers.get("Cache-Control", "").lower()
+            payload = json.loads(response.read())
+            assert payload == {"grace": True} and type(payload["grace"]) is bool
+    except urllib.error.HTTPError as exc:
+        safe = {key: exc.headers.get(key) for key in (
+            "Server", "CF-Ray", "CF-Mitigated", "Content-Type", "Location", "X-Cache",
+        ) if exc.headers.get(key)}
+        print(f"FOLLOWED-REQUEST DIAGNOSTIC {exc.url}: HTTP {exc.code}, headers={safe}", flush=True)
+        print(f"FOLLOWED-REQUEST BODY: {exc.read(600).decode('utf-8', errors='replace')[:600]!r}", flush=True)
+        # Compare a direct request with default and explicit client identifiers.
+        for ua in ("Python-urllib/3.12", "", "bke-grace-exact-contract-smoke/1"):
+            try:
+                direct = urllib.request.Request(target, headers={"User-Agent": ua})
+                with urllib.request.urlopen(direct, timeout=8) as probe:
+                    print(f"DIRECT PAGE PROBE ua={ua!r}: HTTP {probe.status}, type={probe.headers.get('Content-Type')}", flush=True)
+            except urllib.error.HTTPError as probe_err:
+                print(f"DIRECT PAGE PROBE ua={ua!r}: HTTP {probe_err.code}, body={probe_err.read(130)!r}", flush=True)
+        raise
     print(f"PASS legacy /api/graceperiod/{name}: exact 302 to Pages -> 200 JSON true, no-store")
