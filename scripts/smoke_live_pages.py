@@ -55,6 +55,14 @@ for name in ("renderdock", "airstack"):
         with opener.open(urllib.request.Request(legacy), timeout=8) as response:
             raise SystemExit(f"FAIL {legacy}: expected exact 302 redirect but got HTTP {response.status}")
     except urllib.error.HTTPError as exc:
+        if exc.code != 302:
+            # Diagnostics are restricted to public HTTP headers; do not echo the request body or secrets.
+            safe = {key: exc.headers.get(key) for key in (
+                "Server", "CF-Ray", "CF-Mitigated", "Content-Type", "Location", "X-Cache",
+            ) if exc.headers.get(key)}
+            print(f"EDGE DIAGNOSTIC {legacy}: HTTP {exc.code}, headers={safe}", flush=True)
+            body = exc.read(600).decode("utf-8", errors="replace")
+            print(f"EDGE DIAGNOSTIC BODY: {body[:600]!r}", flush=True)
         assert exc.code == 302, f"FAIL {legacy}: expected 302, got {exc.code}"
         assert exc.headers.get("Location") == target, f"FAIL {legacy}: unexpected redirect destination"
     with urllib.request.urlopen(urllib.request.Request(legacy), timeout=8) as response:
