@@ -40,3 +40,27 @@ except urllib.error.HTTPError as exc:
     # site's 404 fallback; either status refuses Grace and is safe.
     assert exc.code in (403, 404), f"Unexpected status for unknown path: {exc.code}"
     print(f"PASS unknown path: HTTP {exc.code}, denied")
+
+
+# Verify legacy hardcoded URLs at the Cloudflare edge without changing the domain.
+class StopRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+opener = urllib.request.build_opener(StopRedirect())
+for name in ("renderdock", "airstack"):
+    legacy = f"https://jl-bke.com/api/graceperiod/{name}"
+    target = f"{BASE}/api/graceperiod/{name}"
+    try:
+        with opener.open(urllib.request.Request(legacy), timeout=8) as response:
+            raise SystemExit(f"FAIL {legacy}: expected exact 302 redirect but got HTTP {response.status}")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 302, f"FAIL {legacy}: expected 302, got {exc.code}"
+        assert exc.headers.get("Location") == target, f"FAIL {legacy}: unexpected redirect destination"
+    with urllib.request.urlopen(urllib.request.Request(legacy), timeout=8) as response:
+        assert response.status == 200 and response.geturl() == target
+        assert "application/json" in response.headers.get("Content-Type", "").lower()
+        assert "no-store" in response.headers.get("Cache-Control", "").lower()
+        payload = json.loads(response.read())
+        assert payload == {"grace": True} and type(payload["grace"]) is bool
+    print(f"PASS legacy /api/graceperiod/{name}: exact 302 to Pages -> 200 JSON true, no-store")
