@@ -1,0 +1,3 @@
+# Exact extensionless legacy GET paths are internally rewritten to static JSON assets.
+/api/graceperiod/renderdock /api/graceperiod/renderdock.json 200
+/api/graceperiod/airstack /api/graceperiod/airstack.json 200
