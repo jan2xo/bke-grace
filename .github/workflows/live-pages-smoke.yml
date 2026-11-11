@@ -1,0 +1,27 @@
+name: live-pages-contract-smoke
+
+# Cheap main-only deployed behavior check; not a heavy CI suite.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'public/**'
+      - 'scripts/smoke_live_pages.py'
+      - '.github/workflows/live-pages-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-deployed-grace:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert real Cloudflare Pages HTTP responses
+        run: python3 scripts/smoke_live_pages.py
